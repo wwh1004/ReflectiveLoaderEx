@@ -1,6 +1,8 @@
 //============================================================================//
 // Copyright (c) 2012, Stephen Fewer of Harmony Security
-// (www.harmonysecurity.com) All rights reserved.
+// (www.harmonysecurity.com)
+// Copyright (c) 2024, wwh1004
+// All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are met:
@@ -58,11 +60,13 @@ typedef DWORD(NTAPI *NTFLUSHINSTRUCTIONCACHE)(HANDLE, PVOID, ULONG);
 #define ARM_MOVW 0xF2400000
 #define ARM_MOVT 0xF2C00000
 
-#define HASH_KEY 17
+#ifndef REFLECTIVEDLLINJECTION_REFLECTIVELOADER_HASH_KEY
+#define REFLECTIVEDLLINJECTION_REFLECTIVELOADER_HASH_KEY 17
+#endif
 //============================================================================//
 #pragma intrinsic(_rotr)
 
-__forceinline DWORD ror(DWORD d) { return _rotr(d, HASH_KEY); }
+__forceinline DWORD ror(DWORD d) { return _rotr(d, REFLECTIVEDLLINJECTION_REFLECTIVELOADER_HASH_KEY); }
 
 __forceinline DWORD hash(char *c) {
   register DWORD h = 0;
@@ -75,7 +79,7 @@ __forceinline DWORD hash(char *c) {
 }
 
 #define ROR(d, shift) (((d) >> (shift)) | ((d) << (32 - (shift))))
-#define HASH_ROUND(h, c) (_rotr((h), HASH_KEY) + (c))
+#define HASH_ROUND(h, c) (_rotr((h), REFLECTIVEDLLINJECTION_REFLECTIVELOADER_HASH_KEY) + (c))
 #define HASH_1(s, h) HASH_ROUND((h), s[0])
 #define HASH_2(s, h) HASH_ROUND(HASH_1(s, h), s[1])
 #define HASH_3(s, h) HASH_ROUND(HASH_2(s, h), s[2])

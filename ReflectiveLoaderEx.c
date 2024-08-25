@@ -30,47 +30,92 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 //============================================================================//
-#include "ReflectiveLoader.h"
+#ifndef _REFLECTIVELOADEREX_C
+#define _REFLECTIVELOADEREX_C
 //============================================================================//
-// Our loader will set this to a pseudo correct HINSTANCE/HMODULE value
-HINSTANCE hAppInstance = NULL;
+#define WIN32_LEAN_AND_MEAN
+#include <intrin.h>
+#include <windows.h>
+
+#define DEREF(name) *(UINT_PTR *)(name)
+#define DEREF_64(name) *(DWORD64 *)(name)
+#define DEREF_32(name) *(DWORD *)(name)
+#define DEREF_16(name) *(WORD *)(name)
+#define DEREF_8(name) *(BYTE *)(name)
+
+typedef HMODULE(WINAPI *LOADLIBRARYA)(LPCSTR);
+typedef FARPROC(WINAPI *GETPROCADDRESS)(HMODULE, LPCSTR);
+typedef LPVOID(WINAPI *VIRTUALALLOC)(LPVOID, SIZE_T, DWORD, DWORD);
+typedef DWORD(NTAPI *NTFLUSHINSTRUCTIONCACHE)(HANDLE, PVOID, ULONG);
+
+#define GETPROCADDRESS_HASH HASH_14("GetProcAddress", 0)
+
+#define IMAGE_REL_BASED_ARM_MOV32A 5
+#define IMAGE_REL_BASED_ARM_MOV32T 7
+
+#define ARM_MOV_MASK (DWORD)(0xFBF08000)
+#define ARM_MOV_MASK2 (DWORD)(0xFBF08F00)
+#define ARM_MOVW 0xF2400000
+#define ARM_MOVT 0xF2C00000
+
+#ifndef REFLECTIVELOADEREX_HASH_KEY
+#define REFLECTIVELOADEREX_HASH_KEY 17
+#endif
 //============================================================================//
-#pragma intrinsic(_ReturnAddress)
-// This function can not be inlined by the compiler or we will not get the
-// address we expect. Ideally this code will be compiled with the /O2 and /Ob1
-// switches. Bonus points if we could take advantage of RIP relative addressing
-// in this instance but I dont believe we can do so with the compiler intrinsics
-// available (and no inline asm available under x64).
-__declspec(noinline) ULONG_PTR caller(VOID) {
-  return (ULONG_PTR)_ReturnAddress();
+#pragma intrinsic(_rotr)
+
+__forceinline DWORD ror(DWORD d) {
+  return _rotr(d, REFLECTIVELOADEREX_HASH_KEY);
 }
+
+__forceinline DWORD hash(const char *c) {
+  register DWORD h = 0;
+  do {
+    h = ror(h);
+    h += *c;
+  } while (*++c);
+
+  return h;
+}
+
+#define ROR(d, shift) (((d) >> (shift)) | ((d) << (32 - (shift))))
+#define HASH_ROUND(h, c) (_rotr((h), REFLECTIVELOADEREX_HASH_KEY) + (c))
+#define HASH_1(s, h) HASH_ROUND((h), s[0])
+#define HASH_2(s, h) HASH_ROUND(HASH_1(s, h), s[1])
+#define HASH_3(s, h) HASH_ROUND(HASH_2(s, h), s[2])
+#define HASH_4(s, h) HASH_ROUND(HASH_3(s, h), s[3])
+#define HASH_5(s, h) HASH_ROUND(HASH_4(s, h), s[4])
+#define HASH_6(s, h) HASH_ROUND(HASH_5(s, h), s[5])
+#define HASH_7(s, h) HASH_ROUND(HASH_6(s, h), s[6])
+#define HASH_8(s, h) HASH_ROUND(HASH_7(s, h), s[7])
+#define HASH_9(s, h) HASH_ROUND(HASH_8(s, h), s[8])
+#define HASH_10(s, h) HASH_ROUND(HASH_9(s, h), s[9])
+#define HASH_11(s, h) HASH_ROUND(HASH_10(s, h), s[10])
+#define HASH_12(s, h) HASH_ROUND(HASH_11(s, h), s[11])
+#define HASH_13(s, h) HASH_ROUND(HASH_12(s, h), s[12])
+#define HASH_14(s, h) HASH_ROUND(HASH_13(s, h), s[13])
+#define HASH_15(s, h) HASH_ROUND(HASH_14(s, h), s[14])
+#define HASH_16(s, h) HASH_ROUND(HASH_15(s, h), s[15])
 //============================================================================//
-
-// Note 1: If you want to have your own DllMain, define
-//         REFLECTIVEDLLINJECTION_CUSTOM_DLLMAIN, otherwise the DllMain at the
-//         end of this file will be used.
-
-// Note 2: If you are injecting the DLL via LoadRemoteLibraryR, define
-//         REFLECTIVEDLLINJECTION_VIA_LOADREMOTELIBRARYR, otherwise it is
-//         assumed you are calling the ReflectiveLoader via a stub.
+typedef struct {
+  WORD offset : 12;
+  WORD type : 4;
+} IMAGE_RELOC, *PIMAGE_RELOC;
+//============================================================================//
 
 // This is our position independent reflective DLL loader/injector
-#ifdef REFLECTIVEDLLINJECTION_VIA_LOADREMOTELIBRARYR
-DLLEXPORT ULONG_PTR WINAPI ReflectiveLoader(LPVOID lpParameter)
-#else
-DLLEXPORT ULONG_PTR WINAPI ReflectiveLoader(VOID)
-#endif
-{
+PVOID ReflectiveLoaderEx(PVOID *libraryAddress, PVOID loadLibraryA,
+                         PVOID getProcAddress, PVOID virtualAlloc,
+                         PVOID ntFlushInstructionCache, BOOL copyPEHeaders) {
   // the functions we need
-  LOADLIBRARYA pLoadLibraryA = NULL;
-  GETPROCADDRESS pGetProcAddress = NULL;
-  VIRTUALALLOC pVirtualAlloc = NULL;
-  NTFLUSHINSTRUCTIONCACHE pNtFlushInstructionCache = NULL;
-
-  USHORT usCounter;
+  LOADLIBRARYA pLoadLibraryA = (LOADLIBRARYA)loadLibraryA;
+  GETPROCADDRESS pGetProcAddress = (GETPROCADDRESS)getProcAddress;
+  VIRTUALALLOC pVirtualAlloc = (VIRTUALALLOC)virtualAlloc;
+  NTFLUSHINSTRUCTIONCACHE pNtFlushInstructionCache =
+      (NTFLUSHINSTRUCTIONCACHE)ntFlushInstructionCache;
 
   // the initial location of this image in memory
-  ULONG_PTR uiLibraryAddress;
+  ULONG_PTR uiLibraryAddress = (ULONG_PTR)*libraryAddress;
   // the kernels base address and later this images newly loaded base address
   ULONG_PTR uiBaseAddress;
 
@@ -78,8 +123,6 @@ DLLEXPORT ULONG_PTR WINAPI ReflectiveLoader(VOID)
   ULONG_PTR uiAddressArray;
   ULONG_PTR uiNameArray;
   ULONG_PTR uiExportDir;
-  ULONG_PTR uiNameOrdinals;
-  DWORD dwHashValue;
 
   // variables for loading this image
   ULONG_PTR uiHeaderValue;
@@ -89,213 +132,7 @@ DLLEXPORT ULONG_PTR WINAPI ReflectiveLoader(VOID)
   ULONG_PTR uiValueD;
   ULONG_PTR uiValueE;
 
-  // STEP 0: calculate our images current base address
-
-  // we will start searching backwards from our callers return address.
-  uiLibraryAddress = caller();
-
-  // loop through memory backwards searching for our images base address
-  // we dont need SEH style search as we shouldnt generate any access violations
-  // with this
-  while (TRUE) {
-    if (((PIMAGE_DOS_HEADER)uiLibraryAddress)->e_magic == IMAGE_DOS_SIGNATURE) {
-      uiHeaderValue = ((PIMAGE_DOS_HEADER)uiLibraryAddress)->e_lfanew;
-      // some x64 dll's can trigger a bogus signature (IMAGE_DOS_SIGNATURE ==
-      // 'POP r10'), we sanity check the e_lfanew with an upper threshold value
-      // of 1024 to avoid problems.
-      if (uiHeaderValue >= sizeof(IMAGE_DOS_HEADER) && uiHeaderValue < 1024) {
-        uiHeaderValue += uiLibraryAddress;
-        // break if we have found a valid MZ/PE header
-        if (((PIMAGE_NT_HEADERS)uiHeaderValue)->Signature == IMAGE_NT_SIGNATURE)
-          break;
-      }
-    }
-    uiLibraryAddress--;
-  }
-
-  // STEP 1: process the kernels exports for the functions our loader needs...
-
-  // get the Process Enviroment Block
-#ifdef _M_AMD64
-  uiBaseAddress = __readgsqword(0x60);
-#elif _M_IX86
-  uiBaseAddress = __readfsdword(0x30);
-#elif _M_ARM
-  uiBaseAddress =
-      *(DWORD *)((BYTE *)_MoveFromCoprocessor(15, 0, 13, 0, 2) + 0x30);
-#elif _M_ARM64
-  uiBaseAddress = __getReg(18) + 0x60;
-#endif
-
-  // get the processes loaded modules. ref:
-  // http://msdn.microsoft.com/en-us/library/aa813708(VS.85).aspx
-  uiBaseAddress = (ULONG_PTR)((_PPEB)uiBaseAddress)->pLdr;
-
-  // get the first entry of the InMemoryOrder module list
-  uiValueA =
-      (ULONG_PTR)((PPEB_LDR_DATA)uiBaseAddress)->InMemoryOrderModuleList.Flink;
-  while (uiValueA) {
-    // get pointer to current modules name (unicode string)
-    uiValueB =
-        (ULONG_PTR)((PLDR_DATA_TABLE_ENTRY)uiValueA)->BaseDllName.pBuffer;
-    // set bCounter to the length for the loop
-    usCounter = ((PLDR_DATA_TABLE_ENTRY)uiValueA)->BaseDllName.Length;
-    // clear uiValueC which will store the hash of the module name
-    uiValueC = 0;
-
-    // compute the hash of the module name...
-    do {
-      uiValueC = ror((DWORD)uiValueC);
-      // normalize to uppercase if the madule name is in lowercase
-      if (*((WCHAR *)uiValueB) >= 'a')
-        uiValueC += *((WCHAR *)uiValueB) - 0x20;
-      else
-        uiValueC += *((WCHAR *)uiValueB);
-      uiValueB += 2;
-    } while ((usCounter -= 2) > 0);
-
-    // compare the hash with that of kernel32.dll
-    if ((DWORD)uiValueC == KERNEL32DLL_HASH) {
-      // get this modules base address
-      uiBaseAddress = (ULONG_PTR)((PLDR_DATA_TABLE_ENTRY)uiValueA)->DllBase;
-
-      // get the VA of the modules NT Header
-      uiExportDir =
-          uiBaseAddress + ((PIMAGE_DOS_HEADER)uiBaseAddress)->e_lfanew;
-
-      // uiNameArray = the address of the modules export directory entry
-      uiNameArray =
-          (ULONG_PTR) &
-          ((PIMAGE_NT_HEADERS)uiExportDir)
-              ->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT];
-
-      // get the VA of the export directory
-      uiExportDir = (uiBaseAddress +
-                     ((PIMAGE_DATA_DIRECTORY)uiNameArray)->VirtualAddress);
-
-      // get the VA for the array of name pointers
-      uiNameArray = (uiBaseAddress +
-                     ((PIMAGE_EXPORT_DIRECTORY)uiExportDir)->AddressOfNames);
-
-      // get the VA for the array of name ordinals
-      uiNameOrdinals =
-          (uiBaseAddress +
-           ((PIMAGE_EXPORT_DIRECTORY)uiExportDir)->AddressOfNameOrdinals);
-
-      usCounter = 3;
-
-      // loop while we still have imports to find
-      while (usCounter > 0) {
-        // compute the hash values for this function name
-        dwHashValue = hash((char *)(uiBaseAddress + DEREF_32(uiNameArray)));
-
-        // if we have found a function we want we get its virtual address
-        if (dwHashValue == LOADLIBRARYA_HASH ||
-            dwHashValue == GETPROCADDRESS_HASH ||
-            dwHashValue == VIRTUALALLOC_HASH) {
-          // get the VA for the array of addresses
-          uiAddressArray =
-              (uiBaseAddress +
-               ((PIMAGE_EXPORT_DIRECTORY)uiExportDir)->AddressOfFunctions);
-
-          // use this functions name ordinal as an index into the array of name
-          // pointers
-          uiAddressArray += (DEREF_16(uiNameOrdinals) * sizeof(DWORD));
-
-          // store this functions VA
-          if (dwHashValue == LOADLIBRARYA_HASH)
-            pLoadLibraryA =
-                (LOADLIBRARYA)(uiBaseAddress + DEREF_32(uiAddressArray));
-          else if (dwHashValue == GETPROCADDRESS_HASH)
-            pGetProcAddress =
-                (GETPROCADDRESS)(uiBaseAddress + DEREF_32(uiAddressArray));
-          else if (dwHashValue == VIRTUALALLOC_HASH)
-            pVirtualAlloc =
-                (VIRTUALALLOC)(uiBaseAddress + DEREF_32(uiAddressArray));
-
-          // decrement our counter
-          usCounter--;
-        }
-
-        // get the next exported function name
-        uiNameArray += sizeof(DWORD);
-
-        // get the next exported function name ordinal
-        uiNameOrdinals += sizeof(WORD);
-      }
-    } else if ((DWORD)uiValueC == NTDLLDLL_HASH) {
-      // get this modules base address
-      uiBaseAddress = (ULONG_PTR)((PLDR_DATA_TABLE_ENTRY)uiValueA)->DllBase;
-
-      // get the VA of the modules NT Header
-      uiExportDir =
-          uiBaseAddress + ((PIMAGE_DOS_HEADER)uiBaseAddress)->e_lfanew;
-
-      // uiNameArray = the address of the modules export directory entry
-      uiNameArray =
-          (ULONG_PTR) &
-          ((PIMAGE_NT_HEADERS)uiExportDir)
-              ->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT];
-
-      // get the VA of the export directory
-      uiExportDir = (uiBaseAddress +
-                     ((PIMAGE_DATA_DIRECTORY)uiNameArray)->VirtualAddress);
-
-      // get the VA for the array of name pointers
-      uiNameArray = (uiBaseAddress +
-                     ((PIMAGE_EXPORT_DIRECTORY)uiExportDir)->AddressOfNames);
-
-      // get the VA for the array of name ordinals
-      uiNameOrdinals =
-          (uiBaseAddress +
-           ((PIMAGE_EXPORT_DIRECTORY)uiExportDir)->AddressOfNameOrdinals);
-
-      usCounter = 1;
-
-      // loop while we still have imports to find
-      while (usCounter > 0) {
-        // compute the hash values for this function name
-        dwHashValue = hash((char *)(uiBaseAddress + DEREF_32(uiNameArray)));
-
-        // if we have found a function we want we get its virtual address
-        if (dwHashValue == NTFLUSHINSTRUCTIONCACHE_HASH) {
-          // get the VA for the array of addresses
-          uiAddressArray =
-              (uiBaseAddress +
-               ((PIMAGE_EXPORT_DIRECTORY)uiExportDir)->AddressOfFunctions);
-
-          // use this functions name ordinal as an index into the array of name
-          // pointers
-          uiAddressArray += (DEREF_16(uiNameOrdinals) * sizeof(DWORD));
-
-          // store this functions VA
-          if (dwHashValue == NTFLUSHINSTRUCTIONCACHE_HASH)
-            pNtFlushInstructionCache =
-                (NTFLUSHINSTRUCTIONCACHE)(uiBaseAddress +
-                                          DEREF_32(uiAddressArray));
-
-          // decrement our counter
-          usCounter--;
-        }
-
-        // get the next exported function name
-        uiNameArray += sizeof(DWORD);
-
-        // get the next exported function name ordinal
-        uiNameOrdinals += sizeof(WORD);
-      }
-    }
-
-    // we stop searching when we have found everything we need.
-    if (pLoadLibraryA && pGetProcAddress && pVirtualAlloc &&
-        pNtFlushInstructionCache)
-      break;
-
-    // get the next entry
-    uiValueA = DEREF(uiValueA);
-  }
-
-  // STEP 2: load our image into a new permanent location in memory...
+  // STEP 1: load our image into a new permanent location in memory...
 
   // get the VA of the NT Header for the PE to be loaded
   uiHeaderValue =
@@ -304,7 +141,7 @@ DLLEXPORT ULONG_PTR WINAPI ReflectiveLoader(VOID)
   // allocate all the memory for the DLL to be loaded into. we can load at any
   // address because we will relocate the image. Also zeros all memory and marks
   // it as READ, WRITE and EXECUTE to avoid any problems.
-  uiBaseAddress = (ULONG_PTR)pVirtualAlloc(
+  uiBaseAddress = *(ULONG_PTR *)libraryAddress = (ULONG_PTR)pVirtualAlloc(
       NULL, ((PIMAGE_NT_HEADERS)uiHeaderValue)->OptionalHeader.SizeOfImage,
       MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
 
@@ -313,10 +150,12 @@ DLLEXPORT ULONG_PTR WINAPI ReflectiveLoader(VOID)
   uiValueB = uiLibraryAddress;
   uiValueC = uiBaseAddress;
 
-  while (uiValueA--)
-    *(BYTE *)uiValueC++ = *(BYTE *)uiValueB++;
+  if (copyPEHeaders) {
+    while (uiValueA--)
+      *(BYTE *)uiValueC++ = *(BYTE *)uiValueB++;
+  }
 
-  // STEP 3: load in all of our sections...
+  // STEP 2: load in all of our sections...
 
   // uiValueA = the VA of the first section
   uiValueA =
@@ -345,7 +184,7 @@ DLLEXPORT ULONG_PTR WINAPI ReflectiveLoader(VOID)
     uiValueA += sizeof(IMAGE_SECTION_HEADER);
   }
 
-  // STEP 4: process our images import table...
+  // STEP 3: process our images import table...
 
   // uiValueB = the address of the import directory
   uiValueB = (ULONG_PTR) &
@@ -409,11 +248,27 @@ DLLEXPORT ULONG_PTR WINAPI ReflectiveLoader(VOID)
         // get the VA of this functions import by name struct
         uiValueB = (uiBaseAddress + DEREF(uiValueA));
 
-        // use GetProcAddress and patch in the address for this imported
-        // function
-        DEREF(uiValueA) = (ULONG_PTR)pGetProcAddress(
-            (HMODULE)uiLibraryAddress,
-            (LPCSTR)((PIMAGE_IMPORT_BY_NAME)uiValueB)->Name);
+        // Hack for golang
+        // see src/runtime/proc.go:
+        // func main() {
+        //   ...
+        //   exit(0)
+        //   for {
+        //     var x *int32
+        // 	   *x = 0
+        //   }
+        // }
+        if (hash((LPCSTR)((PIMAGE_IMPORT_BY_NAME)uiValueB)->Name) ==
+            GETPROCADDRESS_HASH) {
+          // e.g. Hook ExitProcess,GetCommandLineW
+          DEREF(uiValueA) = (ULONG_PTR)pGetProcAddress;
+        } else {
+          // use GetProcAddress and patch in the address for this imported
+          // function
+          DEREF(uiValueA) = (ULONG_PTR)pGetProcAddress(
+              (HMODULE)uiLibraryAddress,
+              (LPCSTR)((PIMAGE_IMPORT_BY_NAME)uiValueB)->Name);
+        }
       }
       // get the next imported function
       uiValueA += sizeof(ULONG_PTR);
@@ -425,7 +280,7 @@ DLLEXPORT ULONG_PTR WINAPI ReflectiveLoader(VOID)
     uiValueC += sizeof(IMAGE_IMPORT_DESCRIPTOR);
   }
 
-  // STEP 5: process all of our images relocations...
+  // STEP 4: process all of our images relocations...
 
   // calculate the base address delta and perform relocations (even if we load
   // at desired image base)
@@ -527,7 +382,7 @@ DLLEXPORT ULONG_PTR WINAPI ReflectiveLoader(VOID)
     }
   }
 
-  // STEP 6: call our images entry point
+  // STEP 5: call our images entry point
 
   // uiValueA = the VA of our newly loaded DLL/EXE's entry point
   uiValueA =
@@ -538,41 +393,10 @@ DLLEXPORT ULONG_PTR WINAPI ReflectiveLoader(VOID)
   // was updated by our relocation processing.
   pNtFlushInstructionCache((HANDLE)-1, NULL, 0);
 
-  // call our respective entry point, fudging our hInstance value
-#ifdef REFLECTIVEDLLINJECTION_VIA_LOADREMOTELIBRARYR
-  // if we are injecting a DLL via LoadRemoteLibraryR we call DllMain and pass
-  // in our parameter (via the DllMain lpReserved parameter)
-  ((DLLMAIN)uiValueA)((HINSTANCE)uiBaseAddress, DLL_PROCESS_ATTACH,
-                      lpParameter);
-#else
-  // if we are injecting an DLL via a stub we call DllMain with no parameter
-  ((DLLMAIN)uiValueA)((HINSTANCE)uiBaseAddress, DLL_PROCESS_ATTACH, NULL);
-#endif
-
-  // STEP 7: return our new entry point address so whatever called us can call
+  // STEP 6: return our new entry point address so whatever called us can call
   // DllMain() if needed.
-  return uiValueA;
+  return (PVOID)uiValueA;
 }
 //============================================================================//
-#ifndef REFLECTIVEDLLINJECTION_CUSTOM_DLLMAIN
-
-BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD dwReason, LPVOID lpReserved) {
-  BOOL bReturnValue = TRUE;
-  switch (dwReason) {
-  case DLL_QUERY_HMODULE:
-    if (lpReserved != NULL)
-      *(HMODULE *)lpReserved = hAppInstance;
-    break;
-  case DLL_PROCESS_ATTACH:
-    hAppInstance = hinstDLL;
-    break;
-  case DLL_PROCESS_DETACH:
-  case DLL_THREAD_ATTACH:
-  case DLL_THREAD_DETACH:
-    break;
-  }
-  return bReturnValue;
-}
-
 #endif
 //============================================================================//
