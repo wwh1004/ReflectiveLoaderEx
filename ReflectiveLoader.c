@@ -107,14 +107,14 @@ DLLEXPORT ULONG_PTR WINAPI ReflectiveLoader( VOID )
 	// STEP 1: process the kernels exports for the functions our loader needs...
 
 	// get the Process Enviroment Block
-#ifdef WIN_X64
+#ifdef _M_AMD64
 	uiBaseAddress = __readgsqword( 0x60 );
-#else
-#ifdef WIN_X86
+#elif _M_IX86
 	uiBaseAddress = __readfsdword( 0x30 );
-#else WIN_ARM
+#elif _M_ARM
 	uiBaseAddress = *(DWORD *)( (BYTE *)_MoveFromCoprocessor( 15, 0, 13, 0, 2 ) + 0x30 );
-#endif
+#elif _M_ARM64
+	uiBaseAddress = __getReg( 18 ) + 0x60;
 #endif
 
 	// get the processes loaded modules. ref: http://msdn.microsoft.com/en-us/library/aa813708(VS.85).aspx
@@ -136,12 +136,12 @@ DLLEXPORT ULONG_PTR WINAPI ReflectiveLoader( VOID )
 		{
 			uiValueC = ror( (DWORD)uiValueC );
 			// normalize to uppercase if the madule name is in lowercase
-			if( *((BYTE *)uiValueB) >= 'a' )
-				uiValueC += *((BYTE *)uiValueB) - 0x20;
+			if( *((WCHAR *)uiValueB) >= 'a' )
+				uiValueC += *((WCHAR *)uiValueB) - 0x20;
 			else
-				uiValueC += *((BYTE *)uiValueB);
-			uiValueB++;
-		} while( --usCounter );
+				uiValueC += *((WCHAR *)uiValueB);
+			uiValueB += 2;
+		} while( ( usCounter -= 2 ) > 0 );
 
 		// compare the hash with that of kernel32.dll
 		if( (DWORD)uiValueC == KERNEL32DLL_HASH )
@@ -402,7 +402,7 @@ DLLEXPORT ULONG_PTR WINAPI ReflectiveLoader( VOID )
 					*(ULONG_PTR *)(uiValueA + ((PIMAGE_RELOC)uiValueD)->offset) += uiLibraryAddress;
 				else if( ((PIMAGE_RELOC)uiValueD)->type == IMAGE_REL_BASED_HIGHLOW )
 					*(DWORD *)(uiValueA + ((PIMAGE_RELOC)uiValueD)->offset) += (DWORD)uiLibraryAddress;
-#ifdef WIN_ARM
+#ifdef _M_ARM
 				// Note: On ARM, the compiler optimization /O2 seems to introduce an off by one issue, possibly a code gen bug. Using /O1 instead avoids this problem.
 				else if( ((PIMAGE_RELOC)uiValueD)->type == IMAGE_REL_BASED_ARM_MOV32T )
 				{	

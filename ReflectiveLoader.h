@@ -40,13 +40,13 @@ typedef FARPROC (WINAPI * GETPROCADDRESS)( HMODULE, LPCSTR );
 typedef LPVOID  (WINAPI * VIRTUALALLOC)( LPVOID, SIZE_T, DWORD, DWORD );
 typedef DWORD  (NTAPI * NTFLUSHINSTRUCTIONCACHE)( HANDLE, PVOID, ULONG );
 
-#define KERNEL32DLL_HASH				0x6A4ABC5B
-#define NTDLLDLL_HASH					0x3CFA685D
+#define KERNEL32DLL_HASH				HASH_12("KERNEL32.DLL", 0)
+#define NTDLLDLL_HASH					HASH_9("NTDLL.DLL", 0)
 
-#define LOADLIBRARYA_HASH				0xEC0E4E8E
-#define GETPROCADDRESS_HASH				0x7C0DFCAA
-#define VIRTUALALLOC_HASH				0x91AFCA54
-#define NTFLUSHINSTRUCTIONCACHE_HASH	0x534C0AB8
+#define LOADLIBRARYA_HASH				HASH_12("LoadLibraryA", 0)
+#define GETPROCADDRESS_HASH				HASH_14("GetProcAddress", 0)
+#define VIRTUALALLOC_HASH				HASH_12("VirtualAlloc", 0)
+#define NTFLUSHINSTRUCTIONCACHE_HASH	HASH_23("NtFlushInstructionCache", 0)
 
 #define IMAGE_REL_BASED_ARM_MOV32A		5
 #define IMAGE_REL_BASED_ARM_MOV32T		7
@@ -56,7 +56,7 @@ typedef DWORD  (NTAPI * NTFLUSHINSTRUCTIONCACHE)( HANDLE, PVOID, ULONG );
 #define ARM_MOVW						0xF2400000
 #define ARM_MOVT						0xF2C00000
 
-#define HASH_KEY						13
+#define HASH_KEY						17
 //===============================================================================================//
 #pragma intrinsic( _rotr )
 
@@ -76,6 +76,33 @@ __forceinline DWORD hash( char * c )
 
     return h;
 }
+
+#define ROR(d, shift) (((d) >> (shift)) | ((d) << (32 - (shift))))
+#define HASH_ROUND(h, c) (_rotr((h), HASH_KEY) + (c))
+#define HASH_1(s, h) HASH_ROUND((h), s[0])
+#define HASH_2(s, h) HASH_ROUND(HASH_1(s, h), s[1])
+#define HASH_3(s, h) HASH_ROUND(HASH_2(s, h), s[2])
+#define HASH_4(s, h) HASH_ROUND(HASH_3(s, h), s[3])
+#define HASH_5(s, h) HASH_ROUND(HASH_4(s, h), s[4])
+#define HASH_6(s, h) HASH_ROUND(HASH_5(s, h), s[5])
+#define HASH_7(s, h) HASH_ROUND(HASH_6(s, h), s[6])
+#define HASH_8(s, h) HASH_ROUND(HASH_7(s, h), s[7])
+#define HASH_9(s, h) HASH_ROUND(HASH_8(s, h), s[8])
+#define HASH_10(s, h) HASH_ROUND(HASH_9(s, h), s[9])
+#define HASH_11(s, h) HASH_ROUND(HASH_10(s, h), s[10])
+#define HASH_12(s, h) HASH_ROUND(HASH_11(s, h), s[11])
+#define HASH_13(s, h) HASH_ROUND(HASH_12(s, h), s[12])
+#define HASH_14(s, h) HASH_ROUND(HASH_13(s, h), s[13])
+#define HASH_15(s, h) HASH_ROUND(HASH_14(s, h), s[14])
+#define HASH_16(s, h) HASH_ROUND(HASH_15(s, h), s[15])
+#define HASH_17(s, h) HASH_ROUND(HASH_16(s, h), s[16])
+#define HASH_18(s, h) HASH_ROUND(HASH_17(s, h), s[17])
+#define HASH_19(s, h) HASH_ROUND(HASH_18(s, h), s[18])
+#define HASH_20(s, h) HASH_ROUND(HASH_19(s, h), s[19])
+#define HASH_21(s, h) HASH_ROUND(HASH_20(s, h), s[20])
+#define HASH_22(s, h) HASH_ROUND(HASH_21(s, h), s[21])
+#define HASH_23(s, h) HASH_ROUND(HASH_22(s, h), s[22])
+#define HASH_24(s, h) HASH_ROUND(HASH_23(s, h), s[23])
 //===============================================================================================//
 typedef struct _UNICODE_STR
 {
