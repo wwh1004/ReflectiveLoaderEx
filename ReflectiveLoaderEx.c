@@ -62,14 +62,13 @@ typedef DWORD(NTAPI *NTFLUSHINSTRUCTIONCACHE)(HANDLE, PVOID, ULONG);
 #define REFLECTIVELOADEREX_HASH_KEY 17
 #endif
 //============================================================================//
-#pragma intrinsic(_rotr)
 
 __forceinline DWORD ror(DWORD d) {
   return _rotr(d, REFLECTIVELOADEREX_HASH_KEY);
 }
 
 __forceinline DWORD hash(const char *c) {
-  register DWORD h = 0;
+  DWORD h = 0;
   do {
     h = ror(h);
     h += *c;
@@ -330,9 +329,9 @@ PVOID ReflectiveLoaderEx(PVOID *libraryAddress, PVOID loadLibraryA,
         // by one issue, possibly a code gen bug. Using /O1 instead avoids this
         // problem.
         else if (((PIMAGE_RELOC)uiValueD)->type == IMAGE_REL_BASED_ARM_MOV32T) {
-          register DWORD dwInstruction;
-          register DWORD dwAddress;
-          register WORD wImm;
+          DWORD dwInstruction;
+          DWORD dwAddress;
+          WORD wImm;
           // get the MOV.T instructions DWORD value (We add 4 to the offset to
           // go past the first MOV.W which handles the low word)
           dwInstruction =
