@@ -202,12 +202,15 @@ PVOID ReflectiveLoaderEx(PVOID *libraryAddress, PVOID loadLibraryA,
         (LPCSTR)(uiBaseAddress + ((PIMAGE_IMPORT_DESCRIPTOR)uiValueC)->Name));
 
     // uiValueD = VA of the OriginalFirstThunk
-    uiValueD = (uiBaseAddress +
-                ((PIMAGE_IMPORT_DESCRIPTOR)uiValueC)->OriginalFirstThunk);
+    uiValueD = ((PIMAGE_IMPORT_DESCRIPTOR)uiValueC)->OriginalFirstThunk;
+    if (uiValueD)
+      uiValueD += uiBaseAddress;
 
     // uiValueA = VA of the IAT (via first thunk not origionalfirstthunk)
     uiValueA =
         (uiBaseAddress + ((PIMAGE_IMPORT_DESCRIPTOR)uiValueC)->FirstThunk);
+    if (!uiValueD)
+      uiValueD = uiValueA;
 
     // itterate through all imported functions, importing by ordinal if no name
     // present
