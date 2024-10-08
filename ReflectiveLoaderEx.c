@@ -34,7 +34,6 @@
 #define _REFLECTIVELOADEREX_C
 //============================================================================//
 #define WIN32_LEAN_AND_MEAN
-#include <intrin.h>
 #include <windows.h>
 
 #define DEREF(name) *(UINT_PTR *)(name)
@@ -48,8 +47,6 @@ typedef FARPROC(WINAPI *GETPROCADDRESS)(HMODULE, LPCSTR);
 typedef LPVOID(WINAPI *VIRTUALALLOC)(LPVOID, SIZE_T, DWORD, DWORD);
 typedef DWORD(NTAPI *NTFLUSHINSTRUCTIONCACHE)(HANDLE, PVOID, ULONG);
 
-#define GETPROCADDRESS_HASH HASH_14("GetProcAddress", 0)
-
 #define IMAGE_REL_BASED_ARM_MOV32A 5
 #define IMAGE_REL_BASED_ARM_MOV32T 7
 
@@ -57,44 +54,6 @@ typedef DWORD(NTAPI *NTFLUSHINSTRUCTIONCACHE)(HANDLE, PVOID, ULONG);
 #define ARM_MOV_MASK2 (DWORD)(0xFBF08F00)
 #define ARM_MOVW 0xF2400000
 #define ARM_MOVT 0xF2C00000
-
-#ifndef REFLECTIVELOADEREX_HASH_KEY
-#define REFLECTIVELOADEREX_HASH_KEY 17
-#endif
-//============================================================================//
-
-__forceinline DWORD ror(DWORD d) {
-  return _rotr(d, REFLECTIVELOADEREX_HASH_KEY);
-}
-
-__forceinline DWORD hash(const char *c) {
-  DWORD h = 0;
-  do {
-    h = ror(h);
-    h += *c;
-  } while (*++c);
-
-  return h;
-}
-
-#define ROR(d, shift) (((d) >> (shift)) | ((d) << (32 - (shift))))
-#define HASH_ROUND(h, c) (_rotr((h), REFLECTIVELOADEREX_HASH_KEY) + (c))
-#define HASH_1(s, h) HASH_ROUND((h), s[0])
-#define HASH_2(s, h) HASH_ROUND(HASH_1(s, h), s[1])
-#define HASH_3(s, h) HASH_ROUND(HASH_2(s, h), s[2])
-#define HASH_4(s, h) HASH_ROUND(HASH_3(s, h), s[3])
-#define HASH_5(s, h) HASH_ROUND(HASH_4(s, h), s[4])
-#define HASH_6(s, h) HASH_ROUND(HASH_5(s, h), s[5])
-#define HASH_7(s, h) HASH_ROUND(HASH_6(s, h), s[6])
-#define HASH_8(s, h) HASH_ROUND(HASH_7(s, h), s[7])
-#define HASH_9(s, h) HASH_ROUND(HASH_8(s, h), s[8])
-#define HASH_10(s, h) HASH_ROUND(HASH_9(s, h), s[9])
-#define HASH_11(s, h) HASH_ROUND(HASH_10(s, h), s[10])
-#define HASH_12(s, h) HASH_ROUND(HASH_11(s, h), s[11])
-#define HASH_13(s, h) HASH_ROUND(HASH_12(s, h), s[12])
-#define HASH_14(s, h) HASH_ROUND(HASH_13(s, h), s[13])
-#define HASH_15(s, h) HASH_ROUND(HASH_14(s, h), s[14])
-#define HASH_16(s, h) HASH_ROUND(HASH_15(s, h), s[15])
 //============================================================================//
 typedef struct {
   WORD offset : 12;
@@ -250,27 +209,11 @@ PVOID ReflectiveLoaderEx(PVOID *libraryAddress, PVOID loadLibraryA,
         // get the VA of this functions import by name struct
         uiValueB = (uiBaseAddress + DEREF(uiValueA));
 
-        // Hack for golang
-        // see src/runtime/proc.go:
-        // func main() {
-        //   ...
-        //   exit(0)
-        //   for {
-        //     var x *int32
-        // 	   *x = 0
-        //   }
-        // }
-        if (hash((LPCSTR)((PIMAGE_IMPORT_BY_NAME)uiValueB)->Name) ==
-            GETPROCADDRESS_HASH) {
-          // e.g. Hook ExitProcess,GetCommandLineW
-          DEREF(uiValueA) = (ULONG_PTR)pGetProcAddress;
-        } else {
-          // use GetProcAddress and patch in the address for this imported
-          // function
-          DEREF(uiValueA) = (ULONG_PTR)pGetProcAddress(
-              (HMODULE)uiLibraryAddress,
-              (LPCSTR)((PIMAGE_IMPORT_BY_NAME)uiValueB)->Name);
-        }
+        // use GetProcAddress and patch in the address for this imported
+        // function
+        DEREF(uiValueA) = (ULONG_PTR)pGetProcAddress(
+            (HMODULE)uiLibraryAddress,
+            (LPCSTR)((PIMAGE_IMPORT_BY_NAME)uiValueB)->Name);
       }
       // get the next imported function
       uiValueA += sizeof(ULONG_PTR);
